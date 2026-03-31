@@ -1,0 +1,28 @@
+spring:
+  application:
+    name: payment
+
+payment:
+  api:
+    secret-key: test_sk_zXLkKEypNArWmo50nX3lmeaxYG5R
+  mock:
+    total-count: 100
+    plans:
+      - attempt: 1
+        latency-ms: 1000
+        success-count: 98
+        fail-count: 2
+        fail-scenarios:
+          - UPSTREAM_429
+          - UPSTREAM_5XX
+      - attempt: 2
+        latency-ms: 900
+        success-count: 1
+        fail-count: 1
+        fail-scenarios:
+          - UPSTREAM_5XX
+      - attempt: 3
+        latency-ms: 800
+        success-count: 1
+        fail-count: 0
+        fail-scenarios: []
