@@ -9,60 +9,68 @@ import com.payment.controller.dto.SuccessResult;
 import com.payment.service.mock.MockAttemptPlanner;
 import com.payment.service.mock.PlanDecision;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Service;
+import org.springframework.web.context.request.async.DeferredResult;
 
+import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class PaymentApiService {
     private final PaymentCache paymentCache;
     private final PaymentMockProperties mockProperties;
     private final MockAttemptPlanner attemptPlanner;
+    private final TaskScheduler taskScheduler;
 
     private final AtomicInteger totalRequestCounter = new AtomicInteger(0);
     private final Map<String, Integer> attemptCounterByPaymentKey = new ConcurrentHashMap<>();
 
-    public ResponseEntity<Result> confirmPayment(PaymentPayload paymentPayload) {
+    public DeferredResult<ResponseEntity<Result>> confirmPayment(PaymentPayload paymentPayload) {
         if (!validatePayment(paymentPayload)) {
-            return fail(HttpStatus.BAD_REQUEST, paymentPayload == null ? null : paymentPayload.orderId(),
-                    "INVALID_REQUEST", "orderId, paymentKey and amount are required.");
+            log.info("orderId, paymentKey, amount is invalid. {} {} {}",
+                    paymentPayload == null ? null : paymentPayload.orderId(),
+                    paymentPayload == null ? null : paymentPayload.paymentKey(),
+                    paymentPayload == null ? null : paymentPayload.amount());
+            return completedAfter(mockProperties.defaultLatencyMs(),
+                    fail(HttpStatus.BAD_REQUEST, paymentPayload == null ? null : paymentPayload.orderId(),
+                    "INVALID_REQUEST", "orderId, paymentKey and amount are required."));
         }
 
         int requestNo = totalRequestCounter.incrementAndGet();
         if (requestNo > mockProperties.totalCount()) {
-            return fail(HttpStatus.TOO_MANY_REQUESTS, paymentPayload.orderId(),
-                    "TEST_LIMIT_EXCEEDED", "Configured total-count has been exceeded.");
+            return completedAfter(mockProperties.defaultLatencyMs(),
+                    fail(HttpStatus.TOO_MANY_REQUESTS, paymentPayload.orderId(),
+                    "TEST_LIMIT_EXCEEDED", "Configured total-count has been exceeded."));
         }
 
         PaymentPayload existingPayment = paymentCache.getPayment(paymentPayload.paymentKey());
         if (existingPayment != null) {
-            return fail(HttpStatus.CONFLICT, paymentPayload.orderId(),
-                    "ALREADY_PROCESSED_PAYMENT", "This payment has already been processed.");
+            log.info("payment already processed.");
+            return completedAfter(mockProperties.defaultLatencyMs(),
+                    fail(HttpStatus.CONFLICT, paymentPayload.orderId(),
+                    "ALREADY_PROCESSED_PAYMENT", "This payment has already been processed."));
         }
 
         int attemptNo = attemptCounterByPaymentKey.merge(paymentPayload.paymentKey(), 1, Integer::sum);
         PlanDecision planDecision = attemptPlanner.decide(attemptNo);
+        DeferredResult<ResponseEntity<Result>> deferredResult = new DeferredResult<>(null);
 
         if (planDecision instanceof PlanDecision.Failure failureDecision) {
-            sleep(failureDecision.latencyMs());
-            if (failureDecision.scenario() == FailedScenario.NO_REQUEST) {
-                waitWithoutResponse();
-            }
-            if (failureDecision.scenario() == FailedScenario.NO_RESPONSE) {
-                paymentCache.putPayment(paymentPayload.paymentKey(), paymentPayload);
-                waitWithoutResponse();
-            }
-            return toFailureResponse(paymentPayload, failureDecision.scenario());
+            schedule(failureDecision.latencyMs(),
+                    () -> completeFailure(deferredResult, paymentPayload, failureDecision.scenario()));
+            return deferredResult;
         }
 
-        sleep(planDecision.latencyMs());
-        paymentCache.putPayment(paymentPayload.paymentKey(), paymentPayload);
-        return ResponseEntity.ok(SuccessResult.create(paymentPayload));
+        schedule(planDecision.latencyMs(), () -> completeSuccess(deferredResult, paymentPayload));
+        return deferredResult;
     }
 
     private ResponseEntity<Result> toFailureResponse(PaymentPayload paymentPayload, FailedScenario failedScenario) {
@@ -95,20 +103,28 @@ public class PaymentApiService {
         return ResponseEntity.status(status).body(new FailedResult(orderId, code, message));
     }
 
-    private void sleep(long latencyMs) {
-        try {
-            Thread.sleep(latencyMs);
-        } catch (InterruptedException e) {}
+    private DeferredResult<ResponseEntity<Result>> completedAfter(long latencyMs, ResponseEntity<Result> response) {
+        DeferredResult<ResponseEntity<Result>> deferredResult = new DeferredResult<>(null);
+        schedule(latencyMs, () -> deferredResult.setResult(response));
+        return deferredResult;
     }
 
-    private void waitWithoutResponse() {
-        try {
-            while (true) {
-                Thread.sleep(60_000L);
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("No-response wait interrupted.", e);
+    private void schedule(long latencyMs, Runnable action) {
+        taskScheduler.schedule(action, Instant.now().plusMillis(Math.max(latencyMs, 0L)));
+    }
+
+    private void completeSuccess(DeferredResult<ResponseEntity<Result>> deferredResult, PaymentPayload paymentPayload) {
+        paymentCache.putPayment(paymentPayload.paymentKey(), paymentPayload);
+        deferredResult.setResult(ResponseEntity.ok(SuccessResult.create(paymentPayload)));
+    }
+
+    private void completeFailure(DeferredResult<ResponseEntity<Result>> deferredResult,
+                                 PaymentPayload paymentPayload,
+                                 FailedScenario failedScenario) {
+        if (failedScenario == FailedScenario.NO_RESPONSE) {
+            paymentCache.putPayment(paymentPayload.paymentKey(), paymentPayload);
+            return;
         }
+        deferredResult.setResult(toFailureResponse(paymentPayload, failedScenario));
     }
 }

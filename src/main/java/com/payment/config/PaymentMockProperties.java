@@ -25,6 +25,17 @@ public record PaymentMockProperties(
                 ));
     }
 
+    public long defaultLatencyMs() {
+        return plans.stream()
+                .filter(plan -> plan.attempt() == 1)
+                .findFirst()
+                .map(AttemptPlan::latencyMs)
+                .orElseGet(() -> plans.stream()
+                        .findFirst()
+                        .map(AttemptPlan::latencyMs)
+                        .orElse(0L));
+    }
+
     public record AttemptPlan(
             int attempt,
             long latencyMs,
