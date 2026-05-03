@@ -19,6 +19,6 @@ payment:
     plans:
       - attempt: 1
         latency-ms: 1000
-        success-count: 1000
+        success-count: 18000
         fail-count: 0
         fail-scenarios: []
