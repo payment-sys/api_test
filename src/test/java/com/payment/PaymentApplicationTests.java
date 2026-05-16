@@ -5,17 +5,14 @@ import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.web.context.WebApplicationContext;
 
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppContextSetup;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest(properties = {
@@ -38,10 +35,10 @@ class PaymentApplicationTests {
     }
 
     @Test
-    void confirmPaymentUsesAsyncResponse() throws Exception {
+    void confirmPaymentUsesSynchronousResponse() throws Exception {
         long startedAt = System.nanoTime();
 
-        MvcResult mvcResult = mockMvc.perform(post("/v1/payments/confirm")
+        mockMvc.perform(post("/v1/payments/confirm")
                         .contentType(APPLICATION_JSON)
                         .content("""
                                 {
@@ -50,10 +47,6 @@ class PaymentApplicationTests {
                                   "amount": 1000
                                 }
                                 """))
-                .andExpect(request().asyncStarted())
-                .andReturn();
-
-        mockMvc.perform(asyncDispatch(mvcResult))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.orderId").value("order-1"))
                 .andExpect(jsonPath("$.paymentKey").value("payment-1"))
@@ -65,7 +58,7 @@ class PaymentApplicationTests {
 
     @Test
     void duplicatePaymentAlsoUsesConfiguredLatency() throws Exception {
-        MvcResult firstResult = mockMvc.perform(post("/v1/payments/confirm")
+        mockMvc.perform(post("/v1/payments/confirm")
                         .contentType(APPLICATION_JSON)
                         .content("""
                                 {
@@ -74,15 +67,11 @@ class PaymentApplicationTests {
                                   "amount": 1000
                                 }
                                 """))
-                .andExpect(request().asyncStarted())
-                .andReturn();
-
-        mockMvc.perform(asyncDispatch(firstResult))
                 .andExpect(status().isOk());
 
         long startedAt = System.nanoTime();
 
-        MvcResult duplicateResult = mockMvc.perform(post("/v1/payments/confirm")
+        mockMvc.perform(post("/v1/payments/confirm")
                         .contentType(APPLICATION_JSON)
                         .content("""
                                 {
@@ -91,10 +80,6 @@ class PaymentApplicationTests {
                                   "amount": 1000
                                 }
                                 """))
-                .andExpect(request().asyncStarted())
-                .andReturn();
-
-        mockMvc.perform(asyncDispatch(duplicateResult))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("ALREADY_PROCESSED_PAYMENT"));
 

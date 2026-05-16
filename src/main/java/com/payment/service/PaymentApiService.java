@@ -12,11 +12,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Service;
-import org.springframework.web.context.request.async.DeferredResult;
 
-import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -28,12 +25,11 @@ public class PaymentApiService {
     private final PaymentCache paymentCache;
     private final PaymentMockProperties mockProperties;
     private final MockAttemptPlanner attemptPlanner;
-    private final TaskScheduler taskScheduler;
 
     private final AtomicInteger totalRequestCounter = new AtomicInteger(0);
     private final Map<String, Integer> attemptCounterByPaymentKey = new ConcurrentHashMap<>();
 
-    public DeferredResult<ResponseEntity<Result>> confirmPayment(PaymentPayload paymentPayload) {
+    public ResponseEntity<Result> confirmPayment(PaymentPayload paymentPayload) {
         if (!validatePayment(paymentPayload)) {
             log.info("orderId, paymentKey, amount is invalid. {} {} {}",
                     paymentPayload == null ? null : paymentPayload.orderId(),
@@ -61,16 +57,13 @@ public class PaymentApiService {
 
         int attemptNo = attemptCounterByPaymentKey.merge(paymentPayload.paymentKey(), 1, Integer::sum);
         PlanDecision planDecision = attemptPlanner.decide(attemptNo);
-        DeferredResult<ResponseEntity<Result>> deferredResult = new DeferredResult<>(null);
+        sleep(planDecision.latencyMs());
 
         if (planDecision instanceof PlanDecision.Failure failureDecision) {
-            schedule(failureDecision.latencyMs(),
-                    () -> completeFailure(deferredResult, paymentPayload, failureDecision.scenario()));
-            return deferredResult;
+            return completeFailure(paymentPayload, failureDecision.scenario());
         }
 
-        schedule(planDecision.latencyMs(), () -> completeSuccess(deferredResult, paymentPayload));
-        return deferredResult;
+        return completeSuccess(paymentPayload);
     }
 
     private ResponseEntity<Result> toFailureResponse(PaymentPayload paymentPayload, FailedScenario failedScenario) {
@@ -103,28 +96,44 @@ public class PaymentApiService {
         return ResponseEntity.status(status).body(new FailedResult(orderId, code, message));
     }
 
-    private DeferredResult<ResponseEntity<Result>> completedAfter(long latencyMs, ResponseEntity<Result> response) {
-        DeferredResult<ResponseEntity<Result>> deferredResult = new DeferredResult<>(null);
-        schedule(latencyMs, () -> deferredResult.setResult(response));
-        return deferredResult;
+    private ResponseEntity<Result> completedAfter(long latencyMs, ResponseEntity<Result> response) {
+        sleep(latencyMs);
+        return response;
     }
 
-    private void schedule(long latencyMs, Runnable action) {
-        taskScheduler.schedule(action, Instant.now().plusMillis(Math.max(latencyMs, 0L)));
-    }
-
-    private void completeSuccess(DeferredResult<ResponseEntity<Result>> deferredResult, PaymentPayload paymentPayload) {
-        paymentCache.putPayment(paymentPayload.paymentKey(), paymentPayload);
-        deferredResult.setResult(ResponseEntity.ok(SuccessResult.create(paymentPayload)));
-    }
-
-    private void completeFailure(DeferredResult<ResponseEntity<Result>> deferredResult,
-                                 PaymentPayload paymentPayload,
-                                 FailedScenario failedScenario) {
-        if (failedScenario == FailedScenario.NO_RESPONSE) {
-            paymentCache.putPayment(paymentPayload.paymentKey(), paymentPayload);
+    private void sleep(long latencyMs) {
+        if (latencyMs <= 0L) {
             return;
         }
-        deferredResult.setResult(toFailureResponse(paymentPayload, failedScenario));
+        try {
+            Thread.sleep(latencyMs);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Payment mock latency wait was interrupted.", e);
+        }
+    }
+
+    private ResponseEntity<Result> completeSuccess(PaymentPayload paymentPayload) {
+        paymentCache.putPayment(paymentPayload.paymentKey(), paymentPayload);
+        return ResponseEntity.ok(SuccessResult.create(paymentPayload));
+    }
+
+    private ResponseEntity<Result> completeFailure(PaymentPayload paymentPayload, FailedScenario failedScenario) {
+        if (failedScenario == FailedScenario.NO_RESPONSE) {
+            paymentCache.putPayment(paymentPayload.paymentKey(), paymentPayload);
+            waitIndefinitelyForNoResponse();
+        }
+        return toFailureResponse(paymentPayload, failedScenario);
+    }
+
+    private void waitIndefinitelyForNoResponse() {
+        while (true) {
+            try {
+                Thread.sleep(Long.MAX_VALUE);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Payment mock no-response wait was interrupted.", e);
+            }
+        }
     }
 }

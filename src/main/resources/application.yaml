@@ -6,6 +6,9 @@ server:
       max-queue-capacity: 1000
 
 spring:
+  threads:
+    virtual:
+      enabled: true
   application:
     name: payment
 
