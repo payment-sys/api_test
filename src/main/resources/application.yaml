@@ -18,10 +18,10 @@ payment:
   api:
     secret-key: test_sk_zXLkKEypNArWmo50nX3lmeaxYG5R
   mock:
-    total-count: 36000
+    total-count: 90000
     plans:
       - attempt: 1
         latency-ms: 1000
-        success-count: 36000
+        success-count: 90000
         fail-count: 0
         fail-scenarios: []
