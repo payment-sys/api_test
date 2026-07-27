@@ -6,16 +6,16 @@ import com.payment.controller.dto.FailedResult;
 import com.payment.controller.dto.PaymentPayload;
 import com.payment.controller.dto.Result;
 import com.payment.controller.dto.SuccessResult;
+import com.payment.service.mock.MockLatencyControllerService;
 import com.payment.service.mock.MockAttemptPlanner;
 import com.payment.service.mock.PlanDecision;
+import com.payment.webhook.PaymentWebhookSender;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
@@ -25,13 +25,14 @@ public class PaymentApiService {
     private final PaymentCache paymentCache;
     private final PaymentMockProperties mockProperties;
     private final MockAttemptPlanner attemptPlanner;
+    private final MockLatencyControllerService mockLatencyControllerService;
+    private final PaymentWebhookSender webhookSender;
 
     private final AtomicInteger totalRequestCounter = new AtomicInteger(0);
-    private final Map<String, Integer> attemptCounterByPaymentKey = new ConcurrentHashMap<>();
 
     public ResponseEntity<Result> confirmPayment(PaymentPayload paymentPayload) {
         if (!validatePayment(paymentPayload)) {
-            log.info("orderId, paymentKey, amount is invalid. {} {} {}",
+            log.debug("orderId, paymentKey, amount is invalid. {} {} {}",
                     paymentPayload == null ? null : paymentPayload.orderId(),
                     paymentPayload == null ? null : paymentPayload.paymentKey(),
                     paymentPayload == null ? null : paymentPayload.amount());
@@ -41,23 +42,22 @@ public class PaymentApiService {
         }
 
         int requestNo = totalRequestCounter.incrementAndGet();
-        if (requestNo > mockProperties.totalCount()) {
+        if (mockProperties.totalCount() > 0 && requestNo > mockProperties.totalCount()) {
             return completedAfter(mockProperties.defaultLatencyMs(),
                     fail(HttpStatus.TOO_MANY_REQUESTS, paymentPayload.orderId(),
                     "TEST_LIMIT_EXCEEDED", "Configured total-count has been exceeded."));
         }
 
-        PaymentPayload existingPayment = paymentCache.getPayment(paymentPayload.paymentKey());
-        if (existingPayment != null) {
-            log.info("payment already processed.");
+        if (paymentCache.isProcessed(paymentPayload.paymentKey())) {
+            log.debug("payment already processed.");
             return completedAfter(mockProperties.defaultLatencyMs(),
                     fail(HttpStatus.CONFLICT, paymentPayload.orderId(),
                     "ALREADY_PROCESSED_PAYMENT", "This payment has already been processed."));
         }
 
-        int attemptNo = attemptCounterByPaymentKey.merge(paymentPayload.paymentKey(), 1, Integer::sum);
+        int attemptNo = paymentCache.nextAttempt(paymentPayload.paymentKey());
         PlanDecision planDecision = attemptPlanner.decide(attemptNo);
-        sleep(planDecision.latencyMs());
+        sleep(mockLatencyControllerService.resolve(planDecision.latencyMs()));
 
         if (planDecision instanceof PlanDecision.Failure failureDecision) {
             return completeFailure(paymentPayload, failureDecision.scenario());
@@ -97,7 +97,7 @@ public class PaymentApiService {
     }
 
     private ResponseEntity<Result> completedAfter(long latencyMs, ResponseEntity<Result> response) {
-        sleep(latencyMs);
+        sleep(mockLatencyControllerService.resolve(latencyMs));
         return response;
     }
 
@@ -114,13 +114,16 @@ public class PaymentApiService {
     }
 
     private ResponseEntity<Result> completeSuccess(PaymentPayload paymentPayload) {
-        paymentCache.putPayment(paymentPayload.paymentKey(), paymentPayload);
-        return ResponseEntity.ok(SuccessResult.create(paymentPayload));
+        paymentCache.markProcessed(paymentPayload.paymentKey());
+        SuccessResult successResult = SuccessResult.create(paymentPayload);
+        webhookSender.sendDone(paymentPayload, successResult);
+        return ResponseEntity.ok(successResult);
     }
 
     private ResponseEntity<Result> completeFailure(PaymentPayload paymentPayload, FailedScenario failedScenario) {
         if (failedScenario == FailedScenario.NO_RESPONSE) {
-            paymentCache.putPayment(paymentPayload.paymentKey(), paymentPayload);
+            paymentCache.markProcessed(paymentPayload.paymentKey());
+            webhookSender.sendDone(paymentPayload, SuccessResult.create(paymentPayload));
             waitIndefinitelyForNoResponse();
         }
         return toFailureResponse(paymentPayload, failedScenario);

@@ -20,7 +20,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "payment.mock.plans[0].attempt=1",
         "payment.mock.plans[0].latency-ms=200",
         "payment.mock.plans[0].success-count=1000",
-        "payment.mock.plans[0].fail-count=0"
+        "payment.mock.plans[0].fail-count=0",
+        "payment.webhook.enabled=false"
 })
 class PaymentApplicationTests {
 
@@ -50,7 +51,7 @@ class PaymentApplicationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.orderId").value("order-1"))
                 .andExpect(jsonPath("$.paymentKey").value("payment-1"))
-                .andExpect(jsonPath("$.status").value("OK"));
+                .andExpect(jsonPath("$.status").value("DONE"));
 
         long elapsedMillis = (System.nanoTime() - startedAt) / 1_000_000L;
         assertThat(elapsedMillis).isGreaterThanOrEqualTo(150L);

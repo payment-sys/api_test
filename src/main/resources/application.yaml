@@ -1,9 +1,12 @@
 server:
   tomcat:
     threads:
-      max: 200
-      min-spare: 100
-      max-queue-capacity: 1000
+      max: 256
+      min-spare: 16
+      max-queue-capacity: 1024
+    accept-count: 512
+    connection-timeout: 2s
+    keep-alive-timeout: 5s
 
 spring:
   threads:
@@ -17,11 +20,25 @@ spring:
 payment:
   api:
     secret-key: test_sk_zXLkKEypNArWmo50nX3lmeaxYG5R
+  cache:
+    expire-after-seconds: ${PAYMENT_CACHE_EXPIRE_AFTER_SECONDS:60}
+    max-size: ${PAYMENT_CACHE_MAX_SIZE:100000}
+  webhook:
+    enabled: true
+    url: ${PAYMENT_WEBHOOK_URL:http://localhost:8080/payments/webhooks/toss}
+    initial-delay-ms: ${PAYMENT_WEBHOOK_INITIAL_DELAY_MS:3000}
+    retry-delay-ms: ${PAYMENT_WEBHOOK_RETRY_DELAY_MS:1000}
+    max-attempts: ${PAYMENT_WEBHOOK_MAX_ATTEMPTS:3}
+    max-scheduled-events: ${PAYMENT_WEBHOOK_MAX_SCHEDULED_EVENTS:10000}
+    thread-count: ${PAYMENT_WEBHOOK_THREAD_COUNT:4}
+    connect-timeout-ms: ${PAYMENT_WEBHOOK_CONNECT_TIMEOUT_MS:500}
+    read-timeout-ms: ${PAYMENT_WEBHOOK_READ_TIMEOUT_MS:1000}
   mock:
-    total-count: 90000
+    total-count: ${PAYMENT_MOCK_TOTAL_COUNT:0}
     plans:
       - attempt: 1
-        latency-ms: 1000
+        latency-ms: ${PAYMENT_MOCK_LATENCY_MS:1000}
         success-count: 90000
         fail-count: 0
         fail-scenarios: []
+    latency-phases: []

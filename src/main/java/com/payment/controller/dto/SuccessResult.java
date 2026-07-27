@@ -14,11 +14,11 @@ public record SuccessResult(
         OffsetDateTime approvedAt,
         Receipt receipt
 ) implements Result {
-    public static Result create(PaymentPayload paymentPayload) {
+    public static SuccessResult create(PaymentPayload paymentPayload) {
         return new SuccessResult(
                 paymentPayload.orderId(),
                 paymentPayload.paymentKey(),
-                "OK",
+                "DONE",
                 paymentPayload.amount(),
                 LocalDateTime.now().atOffset(ZoneOffset.UTC),
                 new Receipt("test")

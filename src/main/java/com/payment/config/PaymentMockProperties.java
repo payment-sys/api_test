@@ -10,10 +10,12 @@ import java.util.stream.Collectors;
 @ConfigurationProperties(prefix = "payment.mock")
 public record PaymentMockProperties(
         int totalCount,
-        List<AttemptPlan> plans
+        List<AttemptPlan> plans,
+        List<LatencyPhase> latencyPhases
 ) {
     public PaymentMockProperties {
         plans = plans == null ? List.of() : List.copyOf(plans);
+        latencyPhases = latencyPhases == null ? List.of() : List.copyOf(latencyPhases);
     }
 
     public Map<Integer, AttemptPlan> planByAttempt() {
@@ -45,6 +47,16 @@ public record PaymentMockProperties(
     ) {
         public AttemptPlan {
             failScenarios = failScenarios == null ? List.of() : List.copyOf(failScenarios);
+        }
+    }
+
+    public record LatencyPhase(
+            long afterSeconds,
+            long latencyMs
+    ) {
+        public LatencyPhase {
+            afterSeconds = Math.max(0L, afterSeconds);
+            latencyMs = Math.max(0L, latencyMs);
         }
     }
 }

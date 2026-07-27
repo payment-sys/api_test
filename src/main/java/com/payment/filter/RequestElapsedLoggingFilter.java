@@ -25,7 +25,7 @@ public class RequestElapsedLoggingFilter extends OncePerRequestFilter {
             filterChain.doFilter(request, response);
         } finally {
             long elapsedMs = (System.nanoTime() - startedAt) / 1_000_000L;
-            log.info("Request completed. method={}, path={}, status={}, elapsedMs={}",
+            log.debug("Request completed. method={}, path={}, status={}, elapsedMs={}",
                     request.getMethod(),
                     request.getRequestURI(),
                     response.getStatus(),

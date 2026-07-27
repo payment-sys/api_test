@@ -23,7 +23,7 @@ public class PaymentApiController {
             return paymentApiService.confirmPayment(paymentPayload);
         } finally {
             long elapsedMs = (System.nanoTime() - startedAt) / 1_000_000L;
-            log.info("Payment confirm completed. orderId={}, paymentKey={}, elapsedMs={}",
+            log.debug("Payment confirm completed. orderId={}, paymentKey={}, elapsedMs={}",
                     paymentPayload == null ? null : paymentPayload.orderId(),
                     paymentPayload == null ? null : paymentPayload.paymentKey(),
                     elapsedMs);
