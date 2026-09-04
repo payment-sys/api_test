@@ -4,7 +4,6 @@ import com.payment.config.PaymentWebhookProperties;
 import com.payment.controller.dto.PaymentPayload;
 import com.payment.controller.dto.SuccessResult;
 import jakarta.annotation.PreDestroy;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
@@ -19,7 +18,6 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-@Slf4j
 @Component
 public class PaymentWebhookSender {
     private static final String TRANSMISSION_TIME_HEADER = "tosspayments-webhook-transmission-time";
@@ -61,8 +59,6 @@ public class PaymentWebhookSender {
         }
 
         scheduledEvents.decrementAndGet();
-        log.warn("Payment webhook queue is full. orderId={}, paymentKey={}, maxScheduledEvents={}",
-                paymentPayload.orderId(), paymentPayload.paymentKey(), properties.maxScheduledEvents());
         return false;
     }
 
@@ -75,8 +71,6 @@ public class PaymentWebhookSender {
             );
         } catch (RejectedExecutionException e) {
             scheduledEvents.decrementAndGet();
-            log.warn("Payment webhook scheduling rejected. orderId={}, paymentKey={}, attempt={}",
-                    webhook.data().orderId(), webhook.data().paymentKey(), attempt, e);
         }
     }
 
@@ -93,23 +87,17 @@ public class PaymentWebhookSender {
                     .toBodilessEntity();
 
             scheduledEvents.decrementAndGet();
-            log.debug("Payment webhook sent. orderId={}, paymentKey={}, status={}, attempt={}",
-                    webhook.data().orderId(), webhook.data().paymentKey(), webhook.data().status(), attempt);
         } catch (RuntimeException e) {
-            retryOrGiveUp(webhook, attempt, transmissionId, e);
+            retryOrGiveUp(webhook, attempt, transmissionId);
         }
     }
 
-    private void retryOrGiveUp(PaymentStatusChangedWebhook webhook, int attempt, String transmissionId, RuntimeException e) {
+    private void retryOrGiveUp(PaymentStatusChangedWebhook webhook, int attempt, String transmissionId) {
         if (attempt >= properties.maxAttempts()) {
             scheduledEvents.decrementAndGet();
-            log.warn("Payment webhook failed permanently. orderId={}, paymentKey={}, attempt={}",
-                    webhook.data().orderId(), webhook.data().paymentKey(), attempt, e);
             return;
         }
 
-        log.warn("Payment webhook failed. orderId={}, paymentKey={}, attempt={}, nextDelayMs={}",
-                webhook.data().orderId(), webhook.data().paymentKey(), attempt, properties.retryDelayMs());
         schedule(webhook, attempt + 1, properties.retryDelayMs(), transmissionId);
     }
 

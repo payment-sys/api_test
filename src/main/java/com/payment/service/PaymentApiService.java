@@ -9,16 +9,13 @@ import com.payment.controller.dto.SuccessResult;
 import com.payment.service.mock.MockLatencyControllerService;
 import com.payment.service.mock.MockAttemptPlanner;
 import com.payment.service.mock.PlanDecision;
-import com.payment.webhook.PaymentWebhookSender;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
-@Slf4j
 @Service
 @RequiredArgsConstructor
 public class PaymentApiService {
@@ -26,16 +23,11 @@ public class PaymentApiService {
     private final PaymentMockProperties mockProperties;
     private final MockAttemptPlanner attemptPlanner;
     private final MockLatencyControllerService mockLatencyControllerService;
-    private final PaymentWebhookSender webhookSender;
 
     private final AtomicInteger totalRequestCounter = new AtomicInteger(0);
 
     public ResponseEntity<Result> confirmPayment(PaymentPayload paymentPayload) {
         if (!validatePayment(paymentPayload)) {
-            log.debug("orderId, paymentKey, amount is invalid. {} {} {}",
-                    paymentPayload == null ? null : paymentPayload.orderId(),
-                    paymentPayload == null ? null : paymentPayload.paymentKey(),
-                    paymentPayload == null ? null : paymentPayload.amount());
             return completedAfter(mockProperties.defaultLatencyMs(),
                     fail(HttpStatus.BAD_REQUEST, paymentPayload == null ? null : paymentPayload.orderId(),
                     "INVALID_REQUEST", "orderId, paymentKey and amount are required."));
@@ -49,7 +41,6 @@ public class PaymentApiService {
         }
 
         if (paymentCache.isProcessed(paymentPayload.paymentKey())) {
-            log.debug("payment already processed.");
             return completedAfter(mockProperties.defaultLatencyMs(),
                     fail(HttpStatus.CONFLICT, paymentPayload.orderId(),
                     "ALREADY_PROCESSED_PAYMENT", "This payment has already been processed."));
@@ -116,14 +107,12 @@ public class PaymentApiService {
     private ResponseEntity<Result> completeSuccess(PaymentPayload paymentPayload) {
         paymentCache.markProcessed(paymentPayload.paymentKey());
         SuccessResult successResult = SuccessResult.create(paymentPayload);
-        webhookSender.sendDone(paymentPayload, successResult);
         return ResponseEntity.ok(successResult);
     }
 
     private ResponseEntity<Result> completeFailure(PaymentPayload paymentPayload, FailedScenario failedScenario) {
         if (failedScenario == FailedScenario.NO_RESPONSE) {
             paymentCache.markProcessed(paymentPayload.paymentKey());
-            webhookSender.sendDone(paymentPayload, SuccessResult.create(paymentPayload));
             waitIndefinitelyForNoResponse();
         }
         return toFailureResponse(paymentPayload, failedScenario);

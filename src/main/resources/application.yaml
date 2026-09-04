@@ -24,7 +24,7 @@ payment:
     expire-after-seconds: ${PAYMENT_CACHE_EXPIRE_AFTER_SECONDS:60}
     max-size: ${PAYMENT_CACHE_MAX_SIZE:100000}
   webhook:
-    enabled: true
+    enabled: false
     url: ${PAYMENT_WEBHOOK_URL:http://localhost:8080/payments/webhooks/toss}
     initial-delay-ms: ${PAYMENT_WEBHOOK_INITIAL_DELAY_MS:3000}
     retry-delay-ms: ${PAYMENT_WEBHOOK_RETRY_DELAY_MS:1000}
