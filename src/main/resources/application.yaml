@@ -41,4 +41,8 @@ payment:
         success-count: 90000
         fail-count: 0
         fail-scenarios: []
-    latency-phases: []
+    latency-phases:
+      - after-seconds: 80
+        latency-ms: 2000
+      - after-seconds: 100
+        latency-ms: 1000
