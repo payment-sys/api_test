@@ -11,8 +11,8 @@ import java.util.concurrent.atomic.AtomicLong;
 public class MockLatencyControllerService {
     private static final long NO_OVERRIDE = -1L;
 
-    private final long startedAtNanos = System.nanoTime();
     private final List<PaymentMockProperties.LatencyPhase> phases;
+    private final AtomicLong startedAtNanos = new AtomicLong(0L);
     private final AtomicLong overrideLatencyMs = new AtomicLong(NO_OVERRIDE);
 
     public MockLatencyControllerService(PaymentMockProperties mockProperties) {
@@ -27,7 +27,9 @@ public class MockLatencyControllerService {
             return override;
         }
 
-        long elapsedSeconds = (System.nanoTime() - startedAtNanos) / 1_000_000_000L;
+        long now = System.nanoTime();
+        startedAtNanos.compareAndSet(0L, now);
+        long elapsedSeconds = (now - startedAtNanos.get()) / 1_000_000_000L;
         long resolved = plannedLatencyMs;
         for (PaymentMockProperties.LatencyPhase phase : phases) {
             if (elapsedSeconds < phase.afterSeconds()) {
@@ -46,6 +48,7 @@ public class MockLatencyControllerService {
 
     public long clearOverride() {
         overrideLatencyMs.set(NO_OVERRIDE);
+        startedAtNanos.set(0L);
         return resolve(0L);
     }
 }
